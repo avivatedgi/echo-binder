@@ -1,11 +1,11 @@
 package echo_binder
 
 const (
-	PathField   string = "Path"
-	QueryField  string = "Query"
-	BodyField   string = "Body"
-	FormField   string = "Form"
-	HeaderField string = "Header"
+	pathField   string = "Path"
+	queryField  string = "Query"
+	bodyField   string = "Body"
+	formField   string = "Form"
+	headerField string = "Header"
 
 	TagIdentifier string = "binder"
 )

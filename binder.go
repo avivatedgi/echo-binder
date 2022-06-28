@@ -67,7 +67,7 @@ func (binder Binder) Bind(i interface{}, c echo.Context) error {
 
 	// Make sure that we get a structure to bind
 	if structType.Kind() != reflect.Ptr {
-		return BadRequestError(ErrorInvalidType)
+		return badRequestError(errorInvalidType)
 	}
 
 	// Get the actual element instead of the pointer
@@ -75,7 +75,7 @@ func (binder Binder) Bind(i interface{}, c echo.Context) error {
 
 	// Check that the data is actually a struct
 	if structType.Kind() != reflect.Struct {
-		return BadRequestError(ErrorInvalidType)
+		return badRequestError(errorInvalidType)
 	}
 
 	structValue := reflect.ValueOf(i).Elem()
@@ -100,19 +100,19 @@ func (binder Binder) Bind(i interface{}, c echo.Context) error {
 
 		// If the field is not a structure, return an error for that field
 		if kind != reflect.Struct {
-			return BadRequestError(GetInvalidTypeAtLocationError(typeField.Name))
+			return badRequestError(getInvalidTypeAtLocationError(typeField.Name))
 		}
 
 		// Get the structField of the field
 		structField := structValue.Field(i)
 		if err := handler(c, &structField); err != nil {
-			return BadRequestError(err)
+			return badRequestError(err)
 		}
 	}
 
 	if binder.validator != nil {
 		if err := binder.validator.Struct(i); err != nil {
-			return BadRequestError(err)
+			return badRequestError(err)
 		}
 	}
 
@@ -125,17 +125,17 @@ type structFieldData struct {
 }
 
 var fieldHandlers = map[string]func(echo.Context, *reflect.Value) error{
-	PathField:   bindPath,
-	QueryField:  bindQuery,
-	BodyField:   bindBody,
-	FormField:   bindForm,
-	HeaderField: bindHeader,
+	pathField:   bindPath,
+	queryField:  bindQuery,
+	bodyField:   bindBody,
+	formField:   bindForm,
+	headerField: bindHeader,
 }
 
 func bindPath(c echo.Context, structField *reflect.Value) error {
 	fields, err := getStructFields(structField)
 	if err != nil {
-		return BadRequestError(err)
+		return badRequestError(err)
 	}
 
 	names := c.ParamNames()
@@ -147,16 +147,16 @@ func bindPath(c echo.Context, structField *reflect.Value) error {
 		field, ok := fields[name]
 		if !ok {
 			// Didn't found a field to bound to this path parameter, should return a bad request error.
-			return BadRequestError(GetMissingParamAtLocationError(PathField, name))
+			return badRequestError(getMissingParamAtLocationError(pathField, name))
 		}
 
 		if !field.Value.CanSet() {
 			// The field is not settable, should return an error
-			return BadRequestError(GetNotSettableParamAtLocationError(PathField, name))
+			return badRequestError(getNotSettableParamAtLocationError(pathField, name))
 		}
 
 		if err := setWithProperType(field.Value.Kind(), values[i], field.Value); err != nil {
-			return BadRequestError(err)
+			return badRequestError(err)
 		}
 	}
 
@@ -167,12 +167,12 @@ func bindQuery(c echo.Context, structField *reflect.Value) error {
 	// Check if the method is valid for the query binding
 	method := c.Request().Method
 	if method != http.MethodGet && method != http.MethodDelete && method != http.MethodHead {
-		return BadRequestError(GetUnsupportedHttpMethodError(QueryField, method))
+		return badRequestError(getUnsupportedHttpMethodError(queryField, method))
 	}
 
 	fields, err := getStructFields(structField)
 	if err != nil {
-		return BadRequestError(GetInvalidAnonymousFieldError(PathField))
+		return badRequestError(getInvalidAnonymousFieldError(pathField))
 	}
 
 	params := c.QueryParams()
@@ -186,7 +186,7 @@ func bindQuery(c echo.Context, structField *reflect.Value) error {
 
 		if !field.Value.CanSet() {
 			// The field is not settable, should return an error
-			return BadRequestError(GetNotSettableParamAtLocationError(QueryField, name))
+			return badRequestError(getNotSettableParamAtLocationError(queryField, name))
 		}
 
 		switch field.Value.Type().Kind() {
@@ -199,7 +199,7 @@ func bindQuery(c echo.Context, structField *reflect.Value) error {
 			for i := 0; i < len(values); i++ {
 				value := slice.Index(i)
 				if err := setWithProperType(sliceKind, values[i], &value); err != nil {
-					return BadRequestError(err)
+					return badRequestError(err)
 				}
 			}
 
@@ -208,7 +208,7 @@ func bindQuery(c echo.Context, structField *reflect.Value) error {
 
 		default:
 			if err := setWithProperType(field.Value.Kind(), values[0], field.Value); err != nil {
-				return BadRequestError(err)
+				return badRequestError(err)
 			}
 		}
 	}
@@ -219,7 +219,7 @@ func bindQuery(c echo.Context, structField *reflect.Value) error {
 func bindBody(c echo.Context, structField *reflect.Value) error {
 	// Check if the method is valid for body binding
 	if c.Request().Method == http.MethodGet {
-		return BadRequestError(GetUnsupportedHttpMethodError(BodyField, c.Request().Method))
+		return badRequestError(getUnsupportedHttpMethodError(bodyField, c.Request().Method))
 	}
 
 	// We want the body to bind exactly like echo does
@@ -229,17 +229,17 @@ func bindBody(c echo.Context, structField *reflect.Value) error {
 func bindForm(c echo.Context, structField *reflect.Value) error {
 	// Check if the method is valid for body binding
 	if c.Request().Method == http.MethodGet {
-		return BadRequestError(GetUnsupportedHttpMethodError(BodyField, c.Request().Method))
+		return badRequestError(getUnsupportedHttpMethodError(bodyField, c.Request().Method))
 	}
 
 	fields, err := getStructFields(structField)
 	if err != nil {
-		return BadRequestError(GetInvalidAnonymousFieldError(FormField))
+		return badRequestError(getInvalidAnonymousFieldError(formField))
 	}
 
 	values, err := c.FormParams()
 	if err != nil {
-		return BadRequestError(err)
+		return badRequestError(err)
 	}
 
 	for name, values := range values {
@@ -251,7 +251,7 @@ func bindForm(c echo.Context, structField *reflect.Value) error {
 
 		if !field.Value.CanSet() {
 			// The field is not settable, should return an error
-			return BadRequestError(GetNotSettableParamAtLocationError(FormField, name))
+			return badRequestError(getNotSettableParamAtLocationError(formField, name))
 		}
 
 		switch field.Value.Type().Kind() {
@@ -263,7 +263,7 @@ func bindForm(c echo.Context, structField *reflect.Value) error {
 			for i := 0; i < len(values); i++ {
 				value := slice.Index(i)
 				if err := setWithProperType(sliceKind, values[i], &value); err != nil {
-					return BadRequestError(err)
+					return badRequestError(err)
 				}
 			}
 
@@ -272,7 +272,7 @@ func bindForm(c echo.Context, structField *reflect.Value) error {
 
 		default:
 			if err := setWithProperType(field.Value.Kind(), values[0], field.Value); err != nil {
-				return BadRequestError(err)
+				return badRequestError(err)
 			}
 		}
 	}
@@ -283,7 +283,7 @@ func bindForm(c echo.Context, structField *reflect.Value) error {
 func bindHeader(c echo.Context, structField *reflect.Value) error {
 	fields, err := getStructFields(structField)
 	if err != nil {
-		return BadRequestError(GetInvalidAnonymousFieldError(HeaderField))
+		return badRequestError(getInvalidAnonymousFieldError(headerField))
 	}
 
 	header := c.Request().Header
@@ -296,11 +296,11 @@ func bindHeader(c echo.Context, structField *reflect.Value) error {
 
 		if !field.Value.CanSet() {
 			// The field is not settable, should return an error
-			return BadRequestError(GetNotSettableParamAtLocationError(HeaderField, field.FieldName))
+			return badRequestError(getNotSettableParamAtLocationError(headerField, field.FieldName))
 		}
 
 		if err := setWithProperType(field.Value.Kind(), headerValue, field.Value); err != nil {
-			return BadRequestError(err)
+			return badRequestError(err)
 		}
 	}
 
@@ -327,7 +327,7 @@ func getStructFields(structField *reflect.Value) (map[string]*structFieldData, e
 
 			// If its not a struct, we can't get the fields of it
 			if kind != reflect.Struct {
-				return nil, ErrorInvalidAnonymousField
+				return nil, errorInvalidAnonymousField
 			}
 		}
 

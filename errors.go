@@ -9,30 +9,30 @@ import (
 )
 
 var (
-	ErrorInvalidType           = errors.New("binding element must be a pointer to a struct")
-	ErrorInvalidAnonymousField = errors.New("binding element cannot have embedded fields that arent struct")
+	errorInvalidType           = errors.New("binding element must be a pointer to a struct")
+	errorInvalidAnonymousField = errors.New("binding element cannot have embedded fields that arent struct")
 )
 
-func GetInvalidTypeAtLocationError(location string) error {
+func getInvalidTypeAtLocationError(location string) error {
 	return fmt.Errorf("binding element at `%s` must be a struct", location)
 }
 
-func GetMissingParamAtLocationError(location, param string) error {
+func getMissingParamAtLocationError(location, param string) error {
 	return fmt.Errorf("missing param `%s` at `%s`", param, location)
 }
 
-func GetNotSettableParamAtLocationError(location, param string) error {
+func getNotSettableParamAtLocationError(location, param string) error {
 	return fmt.Errorf("param `%s` at `%s` is not settable", param, location)
 }
 
-func GetUnsupportedHttpMethodError(location, method string) error {
+func getUnsupportedHttpMethodError(location, method string) error {
 	return fmt.Errorf("unsupported http method `%s` at `%s`", method, location)
 }
 
-func GetInvalidAnonymousFieldError(location string) error {
+func getInvalidAnonymousFieldError(location string) error {
 	return fmt.Errorf("binding element at `%s` cannot have embedded fields that arent struct", location)
 }
 
-func BadRequestError(err error) *echo.HTTPError {
+func badRequestError(err error) *echo.HTTPError {
 	return echo.NewHTTPError(http.StatusBadRequest, err.Error()).SetInternal(err)
 }
