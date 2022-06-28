@@ -10,6 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type validEmbedded struct {
+	Key1 string `binder:"key1"`
+	Key2 int    `binder:"key2"`
+}
+
 type pathNormalTester struct {
 	Path struct {
 		Name   string
@@ -26,11 +31,24 @@ type pathTagTester struct {
 	}
 }
 
+type pathEmbedddedTester struct {
+	Path struct {
+		string
+	}
+}
+
+type pathValidEmbeddedTester struct {
+	Path struct {
+		validEmbedded
+	}
+}
+
 func TestPathBinder(t *testing.T) {
 	assert := assert.New(t)
 	e := echo.New()
 	e.Binder = New()
 
+	// Normal request tests
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -46,6 +64,7 @@ func TestPathBinder(t *testing.T) {
 		assert.Equal((*string)(nil), normal.Path.Unused)
 	}
 
+	// Test the custom tags
 	req = httptest.NewRequest(http.MethodGet, "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
@@ -59,6 +78,33 @@ func TestPathBinder(t *testing.T) {
 		assert.Equal(float32(3.53), tagged.Path.Id)
 		assert.Equal("Omer Chen", tagged.Path.Name)
 		assert.Equal((*string)(nil), tagged.Path.Unused)
+	}
+
+	// Test the custom tags
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	c.SetPath("/users/:custom/:Id")
+	c.SetParamNames("custom", "Id")
+	c.SetParamValues("Omer Chen", "3.53")
+
+	embedded := new(pathEmbedddedTester)
+	err = c.Bind(embedded)
+	assert.Error(err)
+
+	// Test the valid embedded struct
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	c.SetPath("/users/:key1/:key2")
+	c.SetParamNames("key1", "key2")
+	c.SetParamValues("value1", "2")
+
+	validEmbedded := new(pathValidEmbeddedTester)
+	err = c.Bind(validEmbedded)
+	if assert.NoError(err) {
+		assert.Equal("value1", validEmbedded.Path.Key1)
+		assert.Equal(2, validEmbedded.Path.Key2)
 	}
 }
 
@@ -107,12 +153,25 @@ type queryTagTester struct {
 	}
 }
 
+type queryEmbedddedTester struct {
+	Query struct {
+		string
+	}
+}
+
+type queryValidEmbeddedTester struct {
+	Query struct {
+		validEmbedded
+	}
+}
+
 func TestQueryBinder(t *testing.T) {
 	assert := assert.New(t)
 
 	e := echo.New()
 	e.Binder = New()
 
+	// Normal query tester
 	req := httptest.NewRequest(http.MethodGet, "/users?Name=Omri&Age=3.14157&Data=1&Data=2&Data=3&OtherData=1&OtherData=2&OtherData=3&F=5", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -126,6 +185,7 @@ func TestQueryBinder(t *testing.T) {
 		assert.Equal([]int{1, 2, 3}, normal.Query.OtherData)
 	}
 
+	// Tester with custom tags
 	req = httptest.NewRequest(http.MethodGet, "/users?name=Omri&custom=3.14157&data=1&data=2&data=3&Data=5&OtherData=1&OtherData=2&OtherData=3&F=5", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
@@ -136,6 +196,27 @@ func TestQueryBinder(t *testing.T) {
 		assert.Equal("Omri", custom.Query.Name)
 		assert.Equal(float64(3.14157), custom.Query.Age)
 		assert.Equal([]string{"1", "2", "3"}, custom.Query.Data)
+	}
+
+	// Tester with embeedded field
+	req = httptest.NewRequest(http.MethodGet, "/users?name=Omri&custom=3.14157&data=1&data=2&data=3&Data=5&OtherData=1&OtherData=2&OtherData=3&F=5", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+
+	embedded := new(queryEmbedddedTester)
+	err = c.Bind(embedded)
+	assert.Error(err)
+
+	// Tester with valid embedded field
+	req = httptest.NewRequest(http.MethodGet, "/users?name=Omri&custom=3.14157&data=1&data=2&data=3&Data=5&OtherData=1&OtherData=2&OtherData=3&F=5&key1=value1&key2=2", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+
+	validEmbedded := new(queryValidEmbeddedTester)
+	err = c.Bind(validEmbedded)
+	if assert.NoError(err) {
+		assert.Equal("value1", validEmbedded.Query.Key1)
+		assert.Equal(2, validEmbedded.Query.Key2)
 	}
 }
 
@@ -156,12 +237,19 @@ type headerTester struct {
 	}
 }
 
+type headerEmbbeddedFieldTester struct {
+	Header struct {
+		string
+	}
+}
+
 func TestHeaderBinder(t *testing.T) {
 	assert := assert.New(t)
 
 	e := echo.New()
 	e.Binder = New()
 
+	// Test normal header binding
 	req := httptest.NewRequest(http.MethodGet, "/users", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -178,6 +266,15 @@ func TestHeaderBinder(t *testing.T) {
 		assert.Equal("1234", normal.Header.embeddedHeader.Omer)
 		assert.Equal("0525381648", normal.Header.AnotherEmbeddedHeader.Yaeli)
 	}
+
+	// Test invalid embedded type binding
+	req = httptest.NewRequest(http.MethodGet, "/users", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+
+	embedded := new(headerEmbbeddedFieldTester)
+	err = c.Bind(embedded)
+	assert.Error(err)
 }
 
 type formTester struct {
@@ -188,12 +285,25 @@ type formTester struct {
 	}
 }
 
+type formEmbeddedTester struct {
+	Form struct {
+		string
+	}
+}
+
+type formValidEmbeddedTester struct {
+	Form struct {
+		validEmbedded
+	}
+}
+
 func TestFormBinder(t *testing.T) {
 	assert := assert.New(t)
 
 	e := echo.New()
 	e.Binder = New()
 
+	// Validate normal form binding
 	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader("Name=Koren&custom=15&data=3.14157&data=152.32&Data=0"))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -205,6 +315,29 @@ func TestFormBinder(t *testing.T) {
 		assert.Equal("Koren", normal.Form.Name)
 		assert.Equal(15, normal.Form.Age)
 		assert.Equal([]float64{3.14157, 152.32}, normal.Form.Data)
+	}
+
+	// Validate embedded form binding
+	req = httptest.NewRequest(http.MethodPost, "/users", strings.NewReader("Name=Koren&custom=15&data=3.14157&data=152.32&Data=0"))
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	embedded := new(formEmbeddedTester)
+	err = c.Bind(embedded)
+	assert.Error(err)
+
+	// Validate valid embedded form binding
+	req = httptest.NewRequest(http.MethodPost, "/users", strings.NewReader("Name=Koren&custom=15&data=3.14157&data=152.32&Data=0&key1=value1&key2=2"))
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	validEmbedded := new(formValidEmbeddedTester)
+	err = c.Bind(validEmbedded)
+	if assert.NoError(err) {
+		assert.Equal("value1", validEmbedded.Form.Key1)
+		assert.Equal(2, validEmbedded.Form.Key2)
 	}
 }
 

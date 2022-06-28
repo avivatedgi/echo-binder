@@ -8,7 +8,10 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-var ErrorInvalidType = errors.New("binding element must be a pointer to a struct")
+var (
+	ErrorInvalidType           = errors.New("binding element must be a pointer to a struct")
+	ErrorInvalidAnonymousField = errors.New("binding element cannot have embedded fields that arent struct")
+)
 
 func GetInvalidTypeAtLocationError(location string) error {
 	return fmt.Errorf("binding element at `%s` must be a struct", location)
@@ -24,6 +27,10 @@ func GetNotSettableParamAtLocationError(location, param string) error {
 
 func GetUnsupportedHttpMethodError(location, method string) error {
 	return fmt.Errorf("unsupported http method `%s` at `%s`", method, location)
+}
+
+func GetInvalidAnonymousFieldError(location string) error {
+	return fmt.Errorf("binding element at `%s` cannot have embedded fields that arent struct", location)
 }
 
 func BadRequestError(err error) *echo.HTTPError {

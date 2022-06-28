@@ -1,3 +1,5 @@
+// A custom binder for the echo web framework that replaces echo's DefaultBinder.
+// This one supports the same syntax as gongular's binder and uses go-playground/validator to validate the binded structs.
 package echo_binder
 
 import (
@@ -8,6 +10,48 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// A replacement for the echo.DefaultBinder that binds the Path, Query, Header, Body and Form params
+// into nested structures that passed into the binder, and finally valiate the structure with the go-playground/validator
+// package. For more information about the validator check: https://pkg.go.dev/github.com/go-playground/validator
+//
+// To use this binder, just add it to the echo.Echo instance:
+//		e := echo.New()
+// 		e.Binder = echo_binder.New()
+//
+// For example, for this struct defined:
+// 		type RequestExample struct {
+// 			Body struct {
+// 				Name string `json:"name" validate:"required"`
+// 			}
+//
+// 			Query struct {
+// 				PostId int `binder:"postId" validate:"required"`
+// 			}
+//
+// 			Path struct {
+// 				UserId int `binder:"id" validate:"required"`
+// 			}
+//
+//			Header struct {
+// 				AcceptLanguage string `binder:"Accept-Language"`
+// 				UserAgent string `binder:"User-Agent"`
+// 			}
+// 		}
+// And this code execution:
+// 		func requestHandler(c echo.Context) error {
+// 			user := &RequestExample{}
+// 			if err := binder.Bind(user, c); err != nil {
+// 				return err
+// 			}
+//
+// 			// Do something with the request
+// 		}
+// The binder will bind the following params:
+// From the body, the name field will be bound to the Name field of the struct.
+// From the query, the postId field will be bound to the PostId field of the struct.
+// From the path, the id field will be bound to the UserId field of the struct.
+// From the header, the Accept-Language field will be bound to the AcceptLanguage field of the struct.
+// From the header, the User-Agent field will be bound to the UserAgent field of the struct.
 type Binder struct {
 	validator *validator.Validate
 }
@@ -62,7 +106,7 @@ func (binder Binder) Bind(i interface{}, c echo.Context) error {
 		// Get the structField of the field
 		structField := structValue.Field(i)
 		if err := handler(c, &structField); err != nil {
-			return err
+			return BadRequestError(err)
 		}
 	}
 
@@ -89,7 +133,11 @@ var fieldHandlers = map[string]func(echo.Context, *reflect.Value) error{
 }
 
 func bindPath(c echo.Context, structField *reflect.Value) error {
-	fields := getStructFields(structField)
+	fields, err := getStructFields(structField)
+	if err != nil {
+		return BadRequestError(err)
+	}
+
 	names := c.ParamNames()
 	values := c.ParamValues()
 
@@ -122,7 +170,11 @@ func bindQuery(c echo.Context, structField *reflect.Value) error {
 		return BadRequestError(GetUnsupportedHttpMethodError(QueryField, method))
 	}
 
-	fields := getStructFields(structField)
+	fields, err := getStructFields(structField)
+	if err != nil {
+		return BadRequestError(GetInvalidAnonymousFieldError(PathField))
+	}
+
 	params := c.QueryParams()
 
 	for name, values := range params {
@@ -180,7 +232,10 @@ func bindForm(c echo.Context, structField *reflect.Value) error {
 		return BadRequestError(GetUnsupportedHttpMethodError(BodyField, c.Request().Method))
 	}
 
-	fields := getStructFields(structField)
+	fields, err := getStructFields(structField)
+	if err != nil {
+		return BadRequestError(GetInvalidAnonymousFieldError(FormField))
+	}
 
 	values, err := c.FormParams()
 	if err != nil {
@@ -226,7 +281,11 @@ func bindForm(c echo.Context, structField *reflect.Value) error {
 }
 
 func bindHeader(c echo.Context, structField *reflect.Value) error {
-	fields := getStructFields(structField)
+	fields, err := getStructFields(structField)
+	if err != nil {
+		return BadRequestError(GetInvalidAnonymousFieldError(HeaderField))
+	}
+
 	header := c.Request().Header
 
 	for name, field := range fields {
@@ -250,7 +309,7 @@ func bindHeader(c echo.Context, structField *reflect.Value) error {
 
 // Returns a map of string to reflect.StructField out of a reflect.Value
 // This function assumes that the reflect.Value is a struct, and it will panic if it is not
-func getStructFields(structField *reflect.Value) map[string]*structFieldData {
+func getStructFields(structField *reflect.Value) (map[string]*structFieldData, error) {
 	fields := make(map[string]*structFieldData)
 
 	for i := 0; i < structField.Type().NumField(); i++ {
@@ -259,17 +318,39 @@ func getStructFields(structField *reflect.Value) map[string]*structFieldData {
 
 		// If the field is an anonymous field, we need to get the fields of the struct it points to
 		if fieldType.Anonymous {
-			// Check if the field is a pointer to a structure
-			if fieldType.Type.Kind() == reflect.Ptr && fieldType.Type.Elem().Kind() == reflect.Struct {
-				// If the field is nil, so we need to set it to a default value
-				if fieldStruct.IsNil() {
-					fieldStruct.Set(reflect.New(fieldType.Type.Elem()))
-				}
+			kind := fieldType.Type.Kind()
 
+			// If the kind is a pointer let's get the real kind
+			if kind == reflect.Ptr {
+				kind = fieldType.Type.Elem().Kind()
+			}
+
+			// If its not a struct, we can't get the fields of it
+			if kind != reflect.Struct {
+				return nil, ErrorInvalidAnonymousField
+			}
+		}
+
+		kind := fieldType.Type.Kind()
+		isPointer := false
+
+		// If the kind is a pointer let's get the real kind
+		if kind == reflect.Ptr {
+			kind = fieldType.Type.Elem().Kind()
+			isPointer = true
+		}
+
+		// If the kind is a struct, let's get the fields of it.
+		if kind == reflect.Struct {
+			if isPointer && fieldStruct.IsNil() {
+				fieldStruct.Set(reflect.New(fieldType.Type.Elem()))
 				fieldStruct = fieldStruct.Elem()
 			}
 
-			tempFields := getStructFields(&fieldStruct)
+			tempFields, err := getStructFields(&fieldStruct)
+			if err != nil {
+				return nil, err
+			}
 
 			for name, field := range tempFields {
 				fields[name] = field
@@ -286,5 +367,5 @@ func getStructFields(structField *reflect.Value) map[string]*structFieldData {
 		fields[identifier] = &structFieldData{FieldName: fieldType.Name, Value: &fieldStruct}
 	}
 
-	return fields
+	return fields, nil
 }
