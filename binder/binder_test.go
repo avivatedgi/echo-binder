@@ -11,8 +11,35 @@ import (
 )
 
 type validEmbedded struct {
-	Key1 string `binder:"key1"`
-	Key2 int    `binder:"key2"`
+	Key1   string `binder:"key1"`
+	Key2   int    `binder:"key2"`
+	Unbind string `binder:"-"`
+}
+
+type allTypes struct {
+	Bool      bool     `binder:"bool"`
+	Int       int      `binder:"int"`
+	Int8      int8     `binder:"int8"`
+	Int16     int16    `binder:"int16"`
+	Int32     int32    `binder:"int32"`
+	Int64     int64    `binder:"int64"`
+	Uint      uint     `binder:"uint"`
+	Uint8     uint8    `binder:"uint8"`
+	Uint16    uint16   `binder:"uint16"`
+	Uint32    uint32   `binder:"uint32"`
+	Uint64    uint64   `binder:"uint64"`
+	Float32   float32  `binder:"float32"`
+	Float64   float64  `binder:"float64"`
+	String    string   `binder:"string"`
+	IntPtr    *int     `binder:"intptr"`
+	UintPtr   *uint    `binder:"uintptr"`
+	FloatPtr  *float32 `binder:"floatptr"`
+	StringPtr *string  `binder:"stringptr"`
+	BoolPtr   *bool    `binder:"boolptr"`
+}
+
+type invalidEmbedded struct {
+	string
 }
 
 type pathNormalTester struct {
@@ -40,6 +67,92 @@ type pathEmbedddedTester struct {
 type pathValidEmbeddedTester struct {
 	Path struct {
 		validEmbedded
+	}
+}
+
+func TestBinderErrors(t *testing.T) {
+	assert := assert.New(t)
+
+	e := echo.New()
+	e.Binder = New()
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetPath("/users/:Name/:Id")
+	c.SetParamNames("Name", "Id")
+	c.SetParamValues("Omri Siniver", "3")
+
+	normal := new(pathNormalTester)
+	// Can bind only pointers
+	err := c.Bind(*normal)
+	assert.Error(err)
+
+	// Can bind only structs
+	err = c.Bind(new(int))
+	assert.Error(err)
+
+	// Cannot bind Path, Query, Form, Header, and Body if they are not structures.
+	type invalidPath struct {
+		Path   string
+		Query  string
+		Form   int
+		Header int
+		Body   float32
+	}
+
+	invalid := invalidPath{}
+	err = c.Bind(&invalid)
+	assert.Error(err)
+
+	// Can not bind embedded struct if it has invalid embedded fields
+	type invalidEmbedded2 struct {
+		Path struct {
+			invalidEmbedded
+		}
+	}
+
+	invalid2 := invalidEmbedded2{}
+	err = c.Bind(&invalid2)
+	assert.Error(err)
+}
+
+type unhandledStructsTester struct {
+	ShouldNotBeHandled struct {
+		Id int `json:"Id"`
+	}
+
+	ShouldNotBeHandled2 struct {
+		Name string `json:"Name"`
+	}
+}
+
+func TestBinderUnhandledStructs(t *testing.T) {
+	assert := assert.New(t)
+
+	e := echo.New()
+	e.Binder = New()
+
+	req := httptest.NewRequest(http.MethodGet, "/users?Name=5&Id=5", strings.NewReader(`{"Name":"Omri Siniver", "Id": 7}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetPath("/users/:Name/:Id")
+	c.SetParamNames("Name", "Id")
+	c.SetParamValues("Omri Siniver", "3")
+
+	normal := unhandledStructsTester{
+		ShouldNotBeHandled: struct {
+			Id int `json:"Id"`
+		}{Id: 10},
+		ShouldNotBeHandled2: struct {
+			Name string `json:"Name"`
+		}{Name: "Roy"},
+	}
+	err := c.Bind(&normal)
+	if assert.NoError(err) {
+		assert.Equal(10, normal.ShouldNotBeHandled.Id)
+		assert.Equal("Roy", normal.ShouldNotBeHandled2.Name)
 	}
 }
 
@@ -106,6 +219,19 @@ func TestPathBinder(t *testing.T) {
 		assert.Equal("value1", validEmbedded.Path.Key1)
 		assert.Equal(2, validEmbedded.Path.Key2)
 	}
+
+	// Check the unbind
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	c.SetPath("/users/:key1/:key2/:-")
+	c.SetParamNames("key1", "key2", "-")
+	c.SetParamValues("value1", "2", "BLIBLI")
+
+	validEmbedded2 := new(pathValidEmbeddedTester)
+	validEmbedded.Path.validEmbedded.Unbind = "BLABLA"
+	err = c.Bind(validEmbedded2)
+	assert.Error(err)
 }
 
 type bodyNormalTester struct {
@@ -218,6 +344,59 @@ func TestQueryBinder(t *testing.T) {
 		assert.Equal("value1", validEmbedded.Query.Key1)
 		assert.Equal(2, validEmbedded.Query.Key2)
 	}
+
+	// Tester with unbind
+	req = httptest.NewRequest(http.MethodGet, "/users?name=Omri&custom=3.14157&data=1&data=2&data=3&Data=5&OtherData=1&OtherData=2&OtherData=3&F=5&key1=value1&key2=2&Unbind=BLIBLI&-=blibli", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+
+	unbind := new(queryValidEmbeddedTester)
+	unbind.Query.Unbind = "BLABLA"
+	err = c.Bind(unbind)
+	if assert.NoError(err) {
+		assert.Equal("value1", unbind.Query.Key1)
+		assert.Equal(2, unbind.Query.Key2)
+		assert.Equal("BLABLA", unbind.Query.Unbind)
+	}
+
+	// Test the all types
+	req = httptest.NewRequest(http.MethodGet, "/users?bool=true&int=150&int8=127&int16=150&int32=150&int64=150&uint=150&uint8=150&uint16=150&uint32=150&uint64=150&float32=150&float64=150&string=150&intptr=150&uintptr=150&floatptr=150&stringptr=150&boolptr=true", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+
+	type AllTypes struct {
+		Query struct {
+			allTypes
+		}
+	}
+
+	all := new(AllTypes)
+	err = c.Bind(all)
+	if assert.NoError(err) {
+		assert.Equal(all.Query.Bool, true)
+		assert.Equal(all.Query.Int, int(150))
+		assert.Equal(all.Query.Int8, int8(127))
+		assert.Equal(all.Query.Int16, int16(150))
+		assert.Equal(all.Query.Int32, int32(150))
+		assert.Equal(all.Query.Int64, int64(150))
+		assert.Equal(all.Query.Uint, uint(150))
+		assert.Equal(all.Query.Uint8, uint8(150))
+		assert.Equal(all.Query.Uint16, uint16(150))
+		assert.Equal(all.Query.Uint32, uint32(150))
+		assert.Equal(all.Query.Uint64, uint64(150))
+		assert.Equal(all.Query.Float32, float32(150))
+		assert.Equal(all.Query.Float64, float64(150))
+		assert.Equal(all.Query.String, "150")
+		assert.Equal(all.Query.IntPtr, getReference(150))
+		assert.Equal(all.Query.UintPtr, getReference[uint](150))
+		assert.Equal(all.Query.FloatPtr, getReference[float32](150))
+		assert.Equal(all.Query.StringPtr, getReference("150"))
+		assert.Equal(all.Query.BoolPtr, getReference(true))
+	}
+}
+
+func getReference[T any](data T) *T {
+	return &data
 }
 
 type embeddedHeader struct {
@@ -339,6 +518,22 @@ func TestFormBinder(t *testing.T) {
 		assert.Equal("value1", validEmbedded.Form.Key1)
 		assert.Equal(2, validEmbedded.Form.Key2)
 	}
+
+	// Validate unsettable field
+	req = httptest.NewRequest(http.MethodPost, "/users", strings.NewReader("Name=Koren&custom=15&data=3.14157&data=152.32&Data=0&key1=value1&key2=2"))
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	type unsettable struct {
+		Form struct {
+			name string `binder:"name"`
+		}
+	}
+
+	unset := new(unsettable)
+	err = c.Bind(unset)
+	// assert.Error(err)
 }
 
 type validateTester struct {

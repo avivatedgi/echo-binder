@@ -362,6 +362,9 @@ func getStructFields(structField *reflect.Value) (map[string]*structFieldData, e
 		identifier := fieldType.Tag.Get(TagIdentifier)
 		if identifier == "" {
 			identifier = fieldType.Name
+		} else if identifier == "-" {
+			// Make sure we don't add this field
+			continue
 		}
 
 		fields[identifier] = &structFieldData{FieldName: fieldType.Name, Value: &fieldStruct}
