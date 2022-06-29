@@ -3,8 +3,12 @@
 package echo_binder
 
 import (
+	"encoding/json"
+	"encoding/xml"
+	"io/ioutil"
 	"net/http"
 	"reflect"
+	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v4"
@@ -99,13 +103,14 @@ func (binder Binder) Bind(i interface{}, c echo.Context) error {
 		}
 
 		// If the field is not a structure, return an error for that field
-		if kind != reflect.Struct {
-			return badRequestError(getInvalidTypeAtLocationError(typeField.Name))
+		// Only if the field is not a body
+		if kind != reflect.Struct && typeField.Name != bodyField {
+			return badRequestError(getInvalidTypeAtLocationError(typeField.Name, structTypeString))
 		}
 
 		// Get the structField of the field
 		structField := structValue.Field(i)
-		if err := handler(c, &structField); err != nil {
+		if err := handler(c, structType, &structValue, &structField); err != nil {
 			return badRequestError(err)
 		}
 	}
@@ -124,7 +129,7 @@ type structFieldData struct {
 	Value     *reflect.Value
 }
 
-var fieldHandlers = map[string]func(echo.Context, *reflect.Value) error{
+var fieldHandlers = map[string]func(echo.Context, reflect.Type, *reflect.Value, *reflect.Value) error{
 	pathField:   bindPath,
 	queryField:  bindQuery,
 	bodyField:   bindBody,
@@ -132,7 +137,7 @@ var fieldHandlers = map[string]func(echo.Context, *reflect.Value) error{
 	headerField: bindHeader,
 }
 
-func bindPath(c echo.Context, structField *reflect.Value) error {
+func bindPath(c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
 	fields, err := getStructFields(structField)
 	if err != nil {
 		return badRequestError(err)
@@ -163,7 +168,7 @@ func bindPath(c echo.Context, structField *reflect.Value) error {
 	return nil
 }
 
-func bindQuery(c echo.Context, structField *reflect.Value) error {
+func bindQuery(c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
 	// Check if the method is valid for the query binding
 	method := c.Request().Method
 	if method != http.MethodGet && method != http.MethodDelete && method != http.MethodHead {
@@ -216,20 +221,77 @@ func bindQuery(c echo.Context, structField *reflect.Value) error {
 	return nil
 }
 
-func bindBody(c echo.Context, structField *reflect.Value) error {
-	// Check if the method is valid for body binding
-	if c.Request().Method == http.MethodGet {
-		return badRequestError(getUnsupportedHttpMethodError(bodyField, c.Request().Method))
+func bindBody(c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) (err error) {
+	request := c.Request()
+
+	// Check if the method is valid for body binding and if there is content in the body
+	if request.Method == http.MethodGet {
+		return badRequestError(getUnsupportedHttpMethodError(bodyField, request.Method))
+	} else if request.ContentLength == 0 {
+		return nil
 	}
 
-	// We want the body to bind exactly like echo does
-	return new(echo.DefaultBinder).BindBody(c, structField.Addr().Interface())
+	// Check if the content type is valid for body binding
+	contentType := request.Header.Get(echo.HeaderContentType)
+
+	body, err := ioutil.ReadAll(c.Request().Body)
+	if err != nil {
+		return internalServerError(err)
+	}
+
+	switch {
+	case strings.HasPrefix(contentType, echo.MIMEApplicationJSON):
+		if err := json.Unmarshal(body, structField.Addr().Interface()); err != nil {
+			return badRequestError(err)
+		}
+
+	case strings.HasPrefix(contentType, echo.MIMEApplicationXML), strings.HasPrefix(contentType, echo.MIMETextXML):
+		if err := xml.Unmarshal(body, structField.Addr().Interface()); err != nil {
+			return badRequestError(err)
+		}
+	}
+
+	if structField.Type().Kind() != reflect.Struct {
+		// If the body is not a struct, no need to fill the BodySentFields field.
+		return nil
+	}
+
+	field, found := structType.FieldByName(bodySentFields)
+	if !found {
+		// Didn't found the body sent field, so we just don't bind it.
+		return nil
+	} else if field.Type.Kind() != reflect.TypeOf(RecursiveLookupTable{}).Kind() {
+		return badRequestError(getInvalidTypeAtLocationError(bodySentFields, lookupTypeString))
+	}
+
+	fieldValue := structValue.FieldByName(bodySentFields)
+	if !fieldValue.CanSet() {
+		return badRequestError(getNotSettableParamAtLocationError(structValue.Type().Name(), bodySentFields))
+	}
+
+	data := lookupTable{}
+	if err := json.Unmarshal(body, &data); err != nil {
+		return badRequestError(err)
+	}
+
+	fieldValue.Set(reflect.ValueOf(data.IntoRecursiveLookupTable()))
+	return nil
 }
 
-func bindForm(c echo.Context, structField *reflect.Value) error {
-	// Check if the method is valid for body binding
-	if c.Request().Method == http.MethodGet {
-		return badRequestError(getUnsupportedHttpMethodError(bodyField, c.Request().Method))
+func bindForm(c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
+	request := c.Request()
+
+	// Check if the method is valid for body binding and if there is content in the body
+	if request.Method == http.MethodGet {
+		return badRequestError(getUnsupportedHttpMethodError(bodyField, request.Method))
+	} else if request.ContentLength == 0 {
+		return nil
+	}
+
+	// Check if the content type is valid for form binding
+	contentType := request.Header.Get(echo.HeaderContentType)
+	if !strings.HasPrefix(contentType, echo.MIMEApplicationForm) && !strings.HasPrefix(contentType, echo.MIMEMultipartForm) {
+		return nil
 	}
 
 	fields, err := getStructFields(structField)
@@ -280,7 +342,7 @@ func bindForm(c echo.Context, structField *reflect.Value) error {
 	return nil
 }
 
-func bindHeader(c echo.Context, structField *reflect.Value) error {
+func bindHeader(c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
 	fields, err := getStructFields(structField)
 	if err != nil {
 		return badRequestError(getInvalidAnonymousFieldError(headerField))

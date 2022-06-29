@@ -113,6 +113,7 @@ func TestBinderErrors(t *testing.T) {
 	}
 
 	invalid2 := invalidEmbedded2{}
+	invalid2.Path.invalidEmbedded.string = ""
 	err = c.Bind(&invalid2)
 	assert.Error(err)
 }
@@ -242,6 +243,14 @@ type bodyNormalTester struct {
 	Header struct{}
 }
 
+type bodyDifferentType struct {
+	Body []string
+}
+
+type bodyDifferentType2 struct {
+	Body int
+}
+
 func TestBodyBinder(t *testing.T) {
 	// There is no to much to check in here, the logic is mostly echo's,
 	// The only logic here is to pass the `struct.Body` into the `echo.DefaultBinder.BindBody`
@@ -259,6 +268,28 @@ func TestBodyBinder(t *testing.T) {
 	err := c.Bind(u)
 	if assert.NoError(err) {
 		assert.Equal("Omri Siniver", u.Body.Name)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`["Daniel", "Israeli"]`))
+	rec = httptest.NewRecorder()
+	req.Header.Set("Content-Type", "application/json")
+	c = e.NewContext(req, rec)
+
+	u2 := new(bodyDifferentType)
+	err = c.Bind(u2)
+	if assert.NoError(err) {
+		assert.Equal(u2.Body, []string{"Daniel", "Israeli"})
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`151`))
+	rec = httptest.NewRecorder()
+	req.Header.Set("Content-Type", "application/json")
+	c = e.NewContext(req, rec)
+
+	u3 := new(bodyDifferentType2)
+	err = c.Bind(u3)
+	if assert.NoError(err) {
+		assert.Equal(u3.Body, 151)
 	}
 }
 
@@ -518,22 +549,6 @@ func TestFormBinder(t *testing.T) {
 		assert.Equal("value1", validEmbedded.Form.Key1)
 		assert.Equal(2, validEmbedded.Form.Key2)
 	}
-
-	// Validate unsettable field
-	req = httptest.NewRequest(http.MethodPost, "/users", strings.NewReader("Name=Koren&custom=15&data=3.14157&data=152.32&Data=0&key1=value1&key2=2"))
-	rec = httptest.NewRecorder()
-	c = e.NewContext(req, rec)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	type unsettable struct {
-		Form struct {
-			name string `binder:"name"`
-		}
-	}
-
-	unset := new(unsettable)
-	err = c.Bind(unset)
-	// assert.Error(err)
 }
 
 type validateTester struct {
@@ -570,4 +585,53 @@ func TestValidator(t *testing.T) {
 	normal = new(validateTester)
 	err = c.Bind(normal)
 	assert.Error(err)
+}
+
+type bodySentFieldsTester struct {
+	Body struct {
+		Name   string `json:"name"`
+		Age    int    `json:"age"`
+		Nested struct {
+			Field         bool `json:"field"`
+			AnotherNested struct {
+				Field bool `json:"field"`
+			} `json:"nested"`
+		} `json:"nested"`
+	}
+
+	BodySentFields RecursiveLookupTable
+}
+
+func TestBodySentFieldsBinder(t *testing.T) {
+	// There is no to much to check in here, the logic is mostly echo's,
+	// The only logic here is to pass the `struct.Body` into the `echo.DefaultBinder.BindBody`
+	assert := assert.New(t)
+
+	e := echo.New()
+	e.Binder = New()
+
+	data := `{"name":"Omri","age":15,"nested":{"field":true,"nested":{"field":false}}}`
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(data))
+	rec := httptest.NewRecorder()
+	req.Header.Set("Content-Type", "application/json")
+	c := e.NewContext(req, rec)
+
+	u := new(bodySentFieldsTester)
+	err := c.Bind(u)
+	if assert.NoError(err) {
+		assert.Equal("Omri", u.Body.Name)
+		assert.Equal(15, u.Body.Age)
+		assert.Equal(true, u.Body.Nested.Field)
+		assert.Equal(false, u.Body.Nested.AnotherNested.Field)
+
+		assert.True(u.BodySentFields.FieldExists("name"))
+		assert.True(u.BodySentFields.FieldExists("age"))
+		assert.True(u.BodySentFields.FieldExists("nested"))
+		assert.False(u.BodySentFields.FieldExists("nested2"))
+		assert.True(u.BodySentFields.FieldExists("nested.nested"))
+		assert.True(u.BodySentFields.FieldExists("nested.field"))
+		assert.False(u.BodySentFields.FieldExists("nested.field2"))
+		assert.True(u.BodySentFields.FieldExists("nested.nested.field"))
+	}
 }

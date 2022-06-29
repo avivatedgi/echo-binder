@@ -182,7 +182,68 @@ func handler(c echo.Context) error {
 
 </details>
 
-</br>The data will be binded according to the specific `Content-Type` header, if it's `application/json` it will use the json attributes, if it's `application/xml` it will use the xml attributes, etc...
+</br>The data will be binded according to the specific `Content-Type` header, if it's `application/json` it will use the json attributes, if it's `application/xml` it will use the xml attributes.
+
+### Check which body params have been sent
+
+A lot of times programmers want to know which body params have been sent and which are just binded to the default values, [echo-binder](https://github.com/avivatedgi/echo-binder) let's you do it! In order to do it, you just need to declare another sub-structure:
+
+```go
+type BodyExample struct {
+    Body struct {
+        Username    string      `json:"username" xml:"username"`
+        Password    string      `json:"password" xml:"password"`
+        Nested struct {
+            Nested struct {
+                Flag bool `json:"flag"`
+            } `json:"nested"`
+        } `json:"nested"`
+    }
+
+    BodySentFields echo_binder.RecursiveLookupTable
+}
+```
+
+From now and on, all you need to do is just use the `BodyExample.BodySentFields.FieldExists` function:
+
+<details>
+  <summary><b>Example</b></summary>
+
+```go
+type BodyExample struct {
+    Body struct {
+        Username    string      `json:"username" xml:"username"`
+        Password    string      `json:"password" xml:"password"`
+        Nested struct {
+            Nested struct {
+                Flag bool `json:"flag"`
+            } `json:"nested"`
+        } `json:"nested"`
+    }
+
+    BodySentFields echo_binder.RecursiveLookupTable
+}
+
+func handler(c echo.Context) error {
+    var example BodyExample
+    if err := c.Bind(&example); err != nil {
+        return err
+    }
+
+    fmt.Println(example.Body.Username)          // avivatedgi
+    fmt.Println(example.Body.Password)          // *********
+    fmt.Println(example.Nested.Nested.Flag)     // false
+
+    fmt.Println(example.BodySentFields.FieldExists("username"))     // true
+    fmt.Println(example.BodySentFields.FieldExists("password"))     // true
+    fmt.Println(example.BodySentFields.FieldExists("nested.nested"))     // true
+    fmt.Println(example.BodySentFields.FieldExists("nested.nested.flag"))     // true
+    fmt.Println(example.BodySentFields.FieldExists("blabla"))     // false
+    fmt.Println(example.BodySentFields.FieldExists("nested.blabla"))     // false
+}
+```
+
+</details>
 
 ### Forms
 
@@ -242,4 +303,5 @@ The structs that are binded by this `Binder` are automatically validated by the 
 
 ### Notes
 
-* All of the sub-structures in the request (`Path`, `Query`, `Header`, `Body`, `Form`) can have embedded struct 
+* All of the sub-structures in the request (`Path`, `Query`, `Header`, `Body`, `Form`) can have embedded struct
+* All of the sub-structures in the request must be struct (except the `Body`)

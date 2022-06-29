@@ -13,8 +13,8 @@ var (
 	errorInvalidAnonymousField = errors.New("binding element cannot have embedded fields that arent struct")
 )
 
-func getInvalidTypeAtLocationError(location string) error {
-	return fmt.Errorf("binding element at `%s` must be a struct", location)
+func getInvalidTypeAtLocationError(location, requiredType string) error {
+	return fmt.Errorf("binding element at `%s` must be a `%s`", location, requiredType)
 }
 
 func getMissingParamAtLocationError(location, param string) error {
@@ -35,4 +35,8 @@ func getInvalidAnonymousFieldError(location string) error {
 
 func badRequestError(err error) *echo.HTTPError {
 	return echo.NewHTTPError(http.StatusBadRequest, err.Error()).SetInternal(err)
+}
+
+func internalServerError(err error) *echo.HTTPError {
+	return echo.NewHTTPError(http.StatusInternalServerError, err.Error()).SetInternal(err)
 }
