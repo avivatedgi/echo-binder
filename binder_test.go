@@ -74,7 +74,8 @@ func TestBinderErrors(t *testing.T) {
 	assert := assert.New(t)
 
 	e := echo.New()
-	e.Binder = New()
+	binder := New()
+	e.Binder = binder
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -132,7 +133,9 @@ func TestBinderUnhandledStructs(t *testing.T) {
 	assert := assert.New(t)
 
 	e := echo.New()
-	e.Binder = New()
+	binder := New()
+	binder.CallEchoDefaultBinderOnError(true)
+	e.Binder = binder
 
 	req := httptest.NewRequest(http.MethodGet, "/users?Name=5&Id=5", strings.NewReader(`{"Name":"Omri Siniver", "Id": 7}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -160,7 +163,10 @@ func TestBinderUnhandledStructs(t *testing.T) {
 func TestPathBinder(t *testing.T) {
 	assert := assert.New(t)
 	e := echo.New()
-	e.Binder = New()
+
+	binder := New()
+	binder.CallEchoDefaultBinderOnError(true)
+	e.Binder = binder
 
 	// Normal request tests
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -252,12 +258,13 @@ type bodyDifferentType2 struct {
 }
 
 func TestBodyBinder(t *testing.T) {
-	// There is no to much to check in here, the logic is mostly echo's,
-	// The only logic here is to pass the `struct.Body` into the `echo.DefaultBinder.BindBody`
 	assert := assert.New(t)
 
 	e := echo.New()
-	e.Binder = New()
+
+	binder := New()
+	binder.CallEchoDefaultBinderOnError(true)
+	e.Binder = binder
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"Omri Siniver"}`))
 	rec := httptest.NewRecorder()
@@ -326,7 +333,9 @@ func TestQueryBinder(t *testing.T) {
 	assert := assert.New(t)
 
 	e := echo.New()
-	e.Binder = New()
+	binder := New()
+	binder.CallEchoDefaultBinderOnError(true)
+	e.Binder = binder
 
 	// Normal query tester
 	req := httptest.NewRequest(http.MethodGet, "/users?Name=Omri&Age=3.14157&Data=1&Data=2&Data=3&OtherData=1&OtherData=2&OtherData=3&F=5", nil)
@@ -457,7 +466,9 @@ func TestHeaderBinder(t *testing.T) {
 	assert := assert.New(t)
 
 	e := echo.New()
-	e.Binder = New()
+	binder := New()
+	binder.CallEchoDefaultBinderOnError(true)
+	e.Binder = binder
 
 	// Test normal header binding
 	req := httptest.NewRequest(http.MethodGet, "/users", nil)
@@ -511,7 +522,9 @@ func TestFormBinder(t *testing.T) {
 	assert := assert.New(t)
 
 	e := echo.New()
-	e.Binder = New()
+	binder := New()
+	binder.CallEchoDefaultBinderOnError(true)
+	e.Binder = binder
 
 	// Validate normal form binding
 	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader("Name=Koren&custom=15&data=3.14157&data=152.32&Data=0"))
@@ -562,7 +575,9 @@ func TestValidator(t *testing.T) {
 	assert := assert.New(t)
 
 	e := echo.New()
-	e.Binder = New()
+	binder := New()
+	binder.CallEchoDefaultBinderOnError(true)
+	e.Binder = binder
 
 	req := httptest.NewRequest(http.MethodGet, "/users", nil)
 	rec := httptest.NewRecorder()
@@ -608,7 +623,9 @@ func TestBodySentFieldsBinder(t *testing.T) {
 	assert := assert.New(t)
 
 	e := echo.New()
-	e.Binder = New()
+	binder := New()
+	binder.CallEchoDefaultBinderOnError(true)
+	e.Binder = binder
 
 	data := `{"name":"Omri","age":15,"nested":{"field":true,"nested":{"field":false}}}`
 
@@ -633,5 +650,39 @@ func TestBodySentFieldsBinder(t *testing.T) {
 		assert.True(u.BodySentFields.FieldExists("nested.field"))
 		assert.False(u.BodySentFields.FieldExists("nested.field2"))
 		assert.True(u.BodySentFields.FieldExists("nested.nested.field"))
+	}
+}
+
+type defaultBindBehavior struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+	Z struct {
+		A int    `json:"a"`
+		B string `json:"b"`
+	}
+}
+
+func TestDefaultBindBehavior(t *testing.T) {
+	assert := assert.New(t)
+
+	e := echo.New()
+
+	binder := New()
+	binder.CallEchoDefaultBinderOnError(true)
+	e.Binder = binder
+
+	data := `{"x": 5, "y": 6, "z": {"a": 7, "b": "foo"}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(data))
+	rec := httptest.NewRecorder()
+	req.Header.Set("Content-Type", "application/json")
+	c := e.NewContext(req, rec)
+
+	u := new(defaultBindBehavior)
+	err := c.Bind(u)
+	if assert.NoError(err) {
+		assert.Equal(5, u.X)
+		assert.Equal(6, u.Y)
+		assert.Equal(7, u.Z.A)
+		assert.Equal("foo", u.Z.B)
 	}
 }

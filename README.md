@@ -305,3 +305,4 @@ The structs that are binded by this `Binder` are automatically validated by the 
 
 * All of the sub-structures in the request (`Path`, `Query`, `Header`, `Body`, `Form`) can have embedded struct
 * All of the sub-structures in the request must be struct (except the `Body`)
+* You can use the default binder of echo in case of errors, so if you already have a code base and you don't want to change all of requests to work this way, just use the `binder.CallEchoDefaultBinderOnError(true)` function.

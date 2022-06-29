@@ -57,13 +57,21 @@ import (
 // From the header, the Accept-Language field will be bound to the AcceptLanguage field of the struct.
 // From the header, the User-Agent field will be bound to the UserAgent field of the struct.
 type Binder struct {
-	validator *validator.Validate
+	validator                    *validator.Validate
+	callEchoDefaultBinderOnError bool
+	defaultBinder                *echo.DefaultBinder
 }
 
 func New() *Binder {
 	return &Binder{
-		validator: validator.New(),
+		validator:                    validator.New(),
+		callEchoDefaultBinderOnError: false,
+		defaultBinder:                new(echo.DefaultBinder),
 	}
+}
+
+func (binder *Binder) CallEchoDefaultBinderOnError(value bool) {
+	binder.callEchoDefaultBinderOnError = value
 }
 
 func (binder Binder) Bind(i interface{}, c echo.Context) error {
@@ -79,10 +87,16 @@ func (binder Binder) Bind(i interface{}, c echo.Context) error {
 
 	// Check that the data is actually a struct
 	if structType.Kind() != reflect.Struct {
+		if binder.callEchoDefaultBinderOnError {
+			return binder.defaultBinder.Bind(i, c)
+		}
+
 		return badRequestError(errorInvalidType)
 	}
 
 	structValue := reflect.ValueOf(i).Elem()
+
+	calledHandler := false
 
 	// Iterate over all the fields of the structure and check for the path, query and body members
 	for i := 0; i < structType.NumField(); i++ {
@@ -105,14 +119,23 @@ func (binder Binder) Bind(i interface{}, c echo.Context) error {
 		// If the field is not a structure, return an error for that field
 		// Only if the field is not a body
 		if kind != reflect.Struct && typeField.Name != bodyField {
+			if binder.callEchoDefaultBinderOnError {
+				return binder.defaultBinder.Bind(i, c)
+			}
+
 			return badRequestError(getInvalidTypeAtLocationError(typeField.Name, structTypeString))
 		}
 
 		// Get the structField of the field
 		structField := structValue.Field(i)
+		calledHandler = true
 		if err := handler(c, structType, &structValue, &structField); err != nil {
 			return badRequestError(err)
 		}
+	}
+
+	if !calledHandler && binder.callEchoDefaultBinderOnError {
+		return binder.defaultBinder.Bind(i, c)
 	}
 
 	if binder.validator != nil {
