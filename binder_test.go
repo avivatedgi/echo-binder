@@ -602,6 +602,9 @@ func TestValidator(t *testing.T) {
 	assert.Error(err)
 }
 
+type bodySentEmbedded struct {
+	Example string `json:"example"`
+}
 type bodySentFieldsTester struct {
 	Body struct {
 		Name   string `json:"name"`
@@ -612,6 +615,7 @@ type bodySentFieldsTester struct {
 				Field bool `json:"field"`
 			} `json:"nested"`
 		} `json:"nested"`
+		bodySentEmbedded
 	}
 
 	BodySentFields RecursiveLookupTable
@@ -627,7 +631,7 @@ func TestBodySentFieldsBinder(t *testing.T) {
 	binder.CallEchoDefaultBinderOnError(true)
 	e.Binder = binder
 
-	data := `{"name":"Omri","age":15,"nested":{"field":true,"nested":{"field":false}}}`
+	data := `{"name":"Omri","age":15,"nested":{"field":true,"nested":{"field":false}}, "example": "Hello world!"}`
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(data))
 	rec := httptest.NewRecorder()
@@ -641,6 +645,7 @@ func TestBodySentFieldsBinder(t *testing.T) {
 		assert.Equal(15, u.Body.Age)
 		assert.Equal(true, u.Body.Nested.Field)
 		assert.Equal(false, u.Body.Nested.AnotherNested.Field)
+		assert.Equal("Hello world!", u.Body.bodySentEmbedded.Example)
 
 		assert.True(u.BodySentFields.FieldExists("name"))
 		assert.True(u.BodySentFields.FieldExists("age"))
@@ -650,6 +655,7 @@ func TestBodySentFieldsBinder(t *testing.T) {
 		assert.True(u.BodySentFields.FieldExists("nested.field"))
 		assert.False(u.BodySentFields.FieldExists("nested.field2"))
 		assert.True(u.BodySentFields.FieldExists("nested.nested.field"))
+		assert.True(u.BodySentFields.FieldExists("example"))
 	}
 }
 
