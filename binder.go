@@ -19,37 +19,42 @@ import (
 // package. For more information about the validator check: https://pkg.go.dev/github.com/go-playground/validator
 //
 // To use this binder, just add it to the echo.Echo instance:
-//		e := echo.New()
-// 		e.Binder = echo_binder.New()
+//
+//	e := echo.New()
+//	e.Binder = echo_binder.New()
 //
 // For example, for this struct defined:
-// 		type RequestExample struct {
-// 			Body struct {
-// 				Name string `json:"name" validate:"required"`
-// 			}
 //
-// 			Query struct {
-// 				PostId int `binder:"postId" validate:"required"`
-// 			}
+//	type RequestExample struct {
+//		Body struct {
+//			Name string `json:"name" validate:"required"`
+//		}
 //
-// 			Path struct {
-// 				UserId int `binder:"id" validate:"required"`
-// 			}
+//		Query struct {
+//			PostId int `binder:"postId" validate:"required"`
+//		}
 //
-//			Header struct {
-// 				AcceptLanguage string `binder:"Accept-Language"`
-// 				UserAgent string `binder:"User-Agent"`
-// 			}
-// 		}
+//		Path struct {
+//			UserId int `binder:"id" validate:"required"`
+//		}
+//
+//		Header struct {
+//			AcceptLanguage string `binder:"Accept-Language"`
+//			UserAgent string `binder:"User-Agent"`
+//		}
+//	}
+//
 // And this code execution:
-// 		func requestHandler(c echo.Context) error {
-// 			user := &RequestExample{}
-// 			if err := binder.Bind(user, c); err != nil {
-// 				return err
-// 			}
 //
-// 			// Do something with the request
-// 		}
+//	func requestHandler(c echo.Context) error {
+//		user := &RequestExample{}
+//		if err := binder.Bind(user, c); err != nil {
+//			return err
+//		}
+//
+//		// Do something with the request
+//	}
+//
 // The binder will bind the following params:
 // From the body, the name field will be bound to the Name field of the struct.
 // From the query, the postId field will be bound to the PostId field of the struct.
@@ -60,6 +65,7 @@ type Binder struct {
 	validator                    *validator.Validate
 	callEchoDefaultBinderOnError bool
 	defaultBinder                *echo.DefaultBinder
+	ignoreNullStringOnHeader     bool
 }
 
 func New() *Binder {
@@ -67,11 +73,16 @@ func New() *Binder {
 		validator:                    validator.New(),
 		callEchoDefaultBinderOnError: false,
 		defaultBinder:                new(echo.DefaultBinder),
+		ignoreNullStringOnHeader:     false,
 	}
 }
 
 func (binder *Binder) CallEchoDefaultBinderOnError(value bool) {
 	binder.callEchoDefaultBinderOnError = value
+}
+
+func (binder *Binder) IgnoreNullStringOnHeader(value bool) {
+	binder.ignoreNullStringOnHeader = value
 }
 
 func (binder Binder) Bind(i interface{}, c echo.Context) error {
@@ -129,7 +140,7 @@ func (binder Binder) Bind(i interface{}, c echo.Context) error {
 		// Get the structField of the field
 		structField := structValue.Field(i)
 		calledHandler = true
-		if err := handler(c, structType, &structValue, &structField); err != nil {
+		if err := handler(&binder, c, structType, &structValue, &structField); err != nil {
 			return badRequestError(err)
 		}
 	}
@@ -152,7 +163,7 @@ type structFieldData struct {
 	Value     *reflect.Value
 }
 
-var fieldHandlers = map[string]func(echo.Context, reflect.Type, *reflect.Value, *reflect.Value) error{
+var fieldHandlers = map[string]func(*Binder, echo.Context, reflect.Type, *reflect.Value, *reflect.Value) error{
 	pathField:   bindPath,
 	queryField:  bindQuery,
 	bodyField:   bindBody,
@@ -160,7 +171,7 @@ var fieldHandlers = map[string]func(echo.Context, reflect.Type, *reflect.Value, 
 	headerField: bindHeader,
 }
 
-func bindPath(c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
+func bindPath(binder *Binder, c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
 	fields, err := getStructFields(structField)
 	if err != nil {
 		return badRequestError(err)
@@ -191,7 +202,7 @@ func bindPath(c echo.Context, structType reflect.Type, structValue *reflect.Valu
 	return nil
 }
 
-func bindQuery(c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
+func bindQuery(binder *Binder, c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
 	// Check if the method is valid for the query binding
 	method := c.Request().Method
 	if method != http.MethodGet && method != http.MethodDelete && method != http.MethodHead {
@@ -244,7 +255,7 @@ func bindQuery(c echo.Context, structType reflect.Type, structValue *reflect.Val
 	return nil
 }
 
-func bindBody(c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) (err error) {
+func bindBody(binder *Binder, c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) (err error) {
 	request := c.Request()
 
 	// Check if the method is valid for body binding and if there is content in the body
@@ -301,7 +312,7 @@ func bindBody(c echo.Context, structType reflect.Type, structValue *reflect.Valu
 	return nil
 }
 
-func bindForm(c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
+func bindForm(binder *Binder, c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
 	request := c.Request()
 
 	// Check if the method is valid for body binding and if there is content in the body
@@ -365,7 +376,7 @@ func bindForm(c echo.Context, structType reflect.Type, structValue *reflect.Valu
 	return nil
 }
 
-func bindHeader(c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
+func bindHeader(binder *Binder, c echo.Context, structType reflect.Type, structValue *reflect.Value, structField *reflect.Value) error {
 	fields, err := getStructFields(structField)
 	if err != nil {
 		return badRequestError(getInvalidAnonymousFieldError(headerField))
@@ -375,7 +386,7 @@ func bindHeader(c echo.Context, structType reflect.Type, structValue *reflect.Va
 
 	for name, field := range fields {
 		headerValue := header.Get(name)
-		if headerValue == "" {
+		if headerValue == "" || (binder.ignoreNullStringOnHeader && headerValue == "null") {
 			continue
 		}
 

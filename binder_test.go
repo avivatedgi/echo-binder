@@ -498,6 +498,64 @@ func TestHeaderBinder(t *testing.T) {
 	assert.Error(err)
 }
 
+type headerIgnoreTester struct {
+	Header struct {
+		embeddedHeader
+		*AnotherEmbeddedHeader
+		Name  string
+		Build int     `binder:"custom"`
+		Koren string  `binder:"koren"`
+		Yael  *string `binder:"abergel"`
+		Eden  int     `binder:"eden"`
+		Lia   *int    `binder:"lia"`
+	}
+}
+
+func TestIgnoreNullStringOnHeader(t *testing.T) {
+	assert := assert.New(t)
+
+	e := echo.New()
+	binder := New()
+	binder.CallEchoDefaultBinderOnError(true)
+	binder.IgnoreNullStringOnHeader(true)
+	e.Binder = binder
+
+	// Test normal header binding
+	req := httptest.NewRequest(http.MethodGet, "/users", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Request().Header.Set("Name", "Omri")
+	c.Request().Header.Set("Custom", "132")
+	c.Request().Header.Set("harari", "1234")
+	c.Request().Header.Set("yerushalmi", "0525381648")
+	c.Request().Header.Set("koren", "null")
+	c.Request().Header.Set("abergel", "null")
+	c.Request().Header.Set("eden", "null")
+	c.Request().Header.Set("lia", "null")
+
+	normal := new(headerIgnoreTester)
+	err := c.Bind(normal)
+	if assert.NoError(err) {
+		assert.Equal("Omri", normal.Header.Name)
+		assert.Equal(132, normal.Header.Build)
+		assert.Equal("1234", normal.Header.embeddedHeader.Omer)
+		assert.Equal("0525381648", normal.Header.AnotherEmbeddedHeader.Yaeli)
+		assert.Equal("", normal.Header.Koren)
+		assert.Equal((*string)(nil), normal.Header.Yael)
+		assert.Equal(0, normal.Header.Eden)
+		assert.Equal((*int)(nil), normal.Header.Lia)
+	}
+
+	// Test invalid embedded type binding
+	req = httptest.NewRequest(http.MethodGet, "/users", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+
+	embedded := new(headerEmbbeddedFieldTester)
+	err = c.Bind(embedded)
+	assert.Error(err)
+}
+
 type formTester struct {
 	Form struct {
 		Name string
